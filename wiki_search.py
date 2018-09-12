@@ -4,24 +4,31 @@ Shows extracts from Wiki using Wikipedia API
 Based on:
 1.  https://www.mediawiki.org/wiki/User:SSethi_(WMF)/Sandbox/API:Opensearch
 2.  https://en.wikipedia.org/api/rest_v1/#!/Page_content/get_page_summary_title
+Needs wiki2text if command line support needed
 """
 
 import requests
 import sys
 from getopt import GetoptError, getopt
-from os.path import basename
+from os.path import basename, exists
+from os import system
+from subprocess import Popen, PIPE
 # comment the selenium usage if browser support not needed 
-from selenium import webdriver
-from os.path import exists
+# from selenium import webdriver
+from urllib.parse import urlparse, unquote
 
 # Refer to Wikipedia API page for explanations
 DEFAULT_LIMIT = 10
 DEFAULT_NAMESPACE = 0
 URL = "https://en.wikipedia.org/w/api.php"
 SUMMARY_URL = "https://en.wikipedia.org/api/rest_v1/page/summary/{}?redirect=true"
+WIKI_PAGE_URL = "https://en.wikipedia.org/api/rest_v1/page/html/{}"
+WIKI_TEXT_COMMAND = 'html2text -utf8 -style pretty -width `tput cols`'
 SHOW_IN_BROWSER = False
+WIKI_TEXT = False
 DETAILED = False
 PARSABLE = False
+SHELL = "/bin/bash"
 
 
 def usage():
@@ -29,16 +36,19 @@ def usage():
     print("Searches and gets extracts from the wiki using Wikipedia API in OpenSearch Format.")
     print("Options:")
     print("\t--help, -h\n\t\tGive the usage.")
-    print("\t--browser, -b\n\t\tOpen in browser.")
+    # print("\t--browser, -b\n\t\tOpen in browser.")
     print("\t--parse, -p\n\t\tPrint in parse-able format (OpenSearch Format).")
     print("\t--detail, -d\n\t\tFetch and display a more detailed Extract.")
     print("\t--limit, -l\n\t\tSet the limit. Default limit = {!s}".format(DEFAULT_LIMIT))
     print("\t--namespace, -n\n\t\tSet the wikipedia namespace. Default namespace = {!s}".format(DEFAULT_NAMESPACE))
+    print("\t--text, -t\n\t\tShow wikipedia page in command line using wiki2text")
 
 
 try:
-    SHORT_OPTIONS = "hdl:n:bp"
-    LONG_OPTIONS = ["help", "detail", "limit=", "namespace=", "browser", "parse"]
+    # SHORT_OPTIONS = "hdl:n:bpt"
+    # LONG_OPTIONS = ["help", "detail", "limit=", "namespace=", "browser", "parse", "text"]
+    SHORT_OPTIONS = "hdl:n:pt"
+    LONG_OPTIONS = ["help", "detail", "limit=", "namespace=", "parse", "text"]
     opts, argv = getopt(args=sys.argv[1:], shortopts=SHORT_OPTIONS, longopts=LONG_OPTIONS)
     SEARCH_TERM = " ".join(argv).strip()
     if SEARCH_TERM == '':
@@ -64,6 +74,8 @@ for o, a in opts:
         DEFAULT_LIMIT = int(a)
     if o in ("--namespace", "-n"):
         DEFAULT_NAMESPACE = int(a)
+    if o in ("--text", "-t"):
+        WIKI_TEXT = True
 
 PARAMS = {
     'action': "opensearch",
@@ -90,9 +102,17 @@ else:
         for index, (title, data, url) in enumerate(zip(DATA[1], DATA[2], DATA[3]), 1):
             if DETAILED:
                 data = detailed_wiki(title)
-            print("{0!s}. \033[031;1m{1}\033[0m:\t[{2}]\n\t\033[1m{3}\033[0m\n".format(index, title, url, data))
+            print("{0!s}. \033[031;1m{1}\033[0m:\t[{2}]\n\t\033[1m{3}\033[0m\n".format(index, title, unquote(url), data))
 
-        if SHOW_IN_BROWSER:
+        if WIKI_TEXT:
+            index = int(input("Enter index [{}-{}]:".format(1, len(DATA[1]))))
+            index = max(min(len(DATA[1]), index), 1) - 1
+            title = basename(urlparse(DATA[3][index]).path)
+            with Popen([SHELL, "-c", WIKI_TEXT_COMMAND], stdin=PIPE, stdout=PIPE) as pipe:  # Both in, out via pipe
+                R = requests.get(WIKI_PAGE_URL.format(title))
+                stdout, stderr = pipe.communicate(R.text.encode('utf-8'))
+                print(stdout.decode(errors='ignore'))
+        elif SHOW_IN_BROWSER:
             print("Browser View: ")
             index = int(input("Enter index [{}-{}]:".format(1, len(DATA[1]))))
             index = max(min(len(DATA[1]), index), 1) - 1
